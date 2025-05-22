@@ -1,0 +1,100 @@
+# NOTE - A lot of this can be configured using environments & a re-usable workflow.
+name: "Release workflow for staging environment."
+
+# Ensure that only a single job or workflow using the same concurrency group
+# runs at a time.
+concurrency: 1
+
+# Trigger this workflow whenever a pull request is opened against the repo's
+# staging branch
+on:
+  push:
+    branches:
+      - staging
+
+jobs:
+  test:
+    name: "Test python packages"
+    # Run on a self-hosted runner so we can deploy to E2 Demo without IP errors
+    runs-on: self-hosted
+
+    steps:
+      # Check out this repo
+      - uses: actions/checkout@v3
+
+      # In a production environment you would need this with ubuntu runners
+      # - uses: actions/setup-python@v5
+      #   with:
+      #     python-version: '3.10.14'
+
+      # Download the Databricks CLI for bundle commands
+      - uses: databricks/setup-cli@main
+
+      # Run tests on remote, under the hood the service principle
+      # runs the tests defined in this repository on serverless compute
+      - run: make ci-test
+        working-directory: .
+        env:
+          DATABRICKS_HOST: https://e2-demo-field-eng.cloud.databricks.com
+          DATABRICKS_CLIENT_ID: ${{ secrets.SP_CLIENT_ID_STAGING }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.SP_CLIENT_SECRET_STAGING }}
+          DATABRICKS_CLUSTER_ID: ${{ secrets.DATABRICKS_CLUSTER_ID_STAGING }}
+          DATABRICKS_BUNDLE_ENV: staging
+
+  validate:
+    name: "Validate bundle"
+    runs-on: self-hosted
+
+    # Only run if tests pass
+    needs:
+      - test
+
+    steps:
+      # Check out this repo
+      - uses: actions/checkout@v3
+
+      # Download the Databricks CLI for bundle commands
+      - uses: databricks/setup-cli@main
+
+      # Validate the bundle configuration before we try to deploy anything
+      # Ideally here we would also do something like a "dry-run" when
+      # functionality exists
+      - run: databricks bundle validate -t staging
+        working-directory: .
+        env:
+          DATABRICKS_HOST: https://e2-demo-field-eng.cloud.databricks.com
+          DATABRICKS_CLIENT_ID: ${{ secrets.SP_CLIENT_ID_STAGING }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.SP_CLIENT_SECRET_STAGING }}
+          DATABRICKS_BUNDLE_ENV: staging
+
+
+  deploy:
+    name: "Deploy bundle"
+    runs-on: self-hosted
+
+    # Only run if validate succeeds
+    needs:
+      - validate
+
+    steps:
+      # Check out this repo
+      - uses: actions/checkout@v3
+
+      # In a production environment you would need this with ubuntu runners
+      # - uses: actions/setup-python@v5
+      #   with:
+      #     python-version: '3.10.14'
+        # Likely a nicer way to do this?
+      - run: python3 -m pip install poetry
+
+      # Download the Databricks CLI for bundle commands
+      - uses: databricks/setup-cli@main
+
+      # Deploy the bundle to the "staging" target as defined
+      # in the bundle's configuration file
+      - run: databricks bundle deploy -t staging --auto-approve
+        working-directory: .
+        env:
+          DATABRICKS_CLIENT_ID: ${{ secrets.SP_CLIENT_ID_STAGING }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.SP_CLIENT_SECRET_STAGING }}
+          DATABRICKS_BUNDLE_ENV: staging
