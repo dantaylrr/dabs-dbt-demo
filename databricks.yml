@@ -7,6 +7,13 @@ bundle:
 include:
   - resources/*.yml
 
+# Define re-usable complex variables
+variables:
+  env:
+    description: Environment value for job name injection.
+    type: complex
+    default: dev
+
 # Deployment targets.
 # The default schema, catalog, etc. for dbt are defined in dbt_profiles/profiles.yml
 targets:
